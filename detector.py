@@ -183,6 +183,7 @@ class Detector(object):
 		while self._run:
 			ts = time.time()
 			frame = cv.QueryFrame(capture)
+			print time.time() - ts
 			ts = (ts+time.time()) / 2
 
 			videoGap += 1
@@ -244,7 +245,6 @@ class Detector(object):
 
 
 				## save / show frame
-
 				if videoGap < self._maxVideoGap:
 					if newVideo:
 						self.log("start capturing video " + t + ".mpg")

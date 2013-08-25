@@ -1,4 +1,4 @@
 meteorcam
 =========
 
-Python based meteor detection program
+Python based meteor detection program for RasPi
