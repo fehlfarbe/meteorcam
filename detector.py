@@ -183,7 +183,7 @@ class Detector(object):
 		while self._run:
 			ts = time.time()
 			frame = cv.QueryFrame(capture)
-			print time.time() - ts
+			print "Cap: " + str(time.time() - ts)
 			ts = (ts+time.time()) / 2
 
 			videoGap += 1
@@ -288,6 +288,8 @@ class Detector(object):
 				if self._showWindow:
 					cv.ShowImage("Thread " + str(self._thread), frame)
 					cv.WaitKey(40)
+				
+				print "Proc: " + str(time.time() - ts)
 
 			else:
 				self.log("no more frames (" + str(frameCount) +" frames)")
