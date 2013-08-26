@@ -14,7 +14,7 @@ class camera(object):
         
         self._fps = 0
         self._exp = 1
-        self._gain = 0
+        self._gain = 10
         self._bin = 1
         self._videoSize = (0,0)
         
@@ -26,13 +26,15 @@ class camera(object):
         
         ### exposure time in ms
         self._exp = int(1/float(self._fps)*1000)
-        #print self._exp
         
     def setVideoSize(self, size):
         self._videoSize = size
+        
+    def setGain(self, g):
+        self._gain = g
     
     def getFrame(self):
-        return None
+        pass
     
     def close(self):
         pass

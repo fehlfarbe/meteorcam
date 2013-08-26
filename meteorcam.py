@@ -39,4 +39,3 @@ if __name__ == "__main__":
     
     print("Close meteorcam")
     sys.exit(0)
-    print("Closed")

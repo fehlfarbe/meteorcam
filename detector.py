@@ -48,6 +48,7 @@ class Detector(object):
 		self._videoSize = (640, 480)
 		self._fps = 25
 		self._bin = 1
+		self._gain = 10
 
 		## thread
 		self._thread = threadnr
@@ -87,7 +88,8 @@ class Detector(object):
 				'videoInput' : self._videoInput,
 				'videoSize' : self._videoSize,
 				'fps' : self._fps,
-				'bin' : self._bin
+				'bin' : self._bin,
+				'gain' : self._gain
 				}
 		config = ConfigParser.RawConfigParser(defaults)
 		config.read( configfile )
@@ -123,6 +125,7 @@ class Detector(object):
 		self._videoSize = config.get('DEFAULT', 'videoSize')
 		self._fps = config.getfloat('DEFAULT', 'fps')
 		self._bin = config.getint('DEFAULT', 'bin')
+		self._gain = config.getint('DEFAULT', 'gain')
 
 		self.log("config loaded")
 
@@ -151,10 +154,17 @@ class Detector(object):
 	def detect(self):	
 
 		self.log("Start detection thread")
-		cap = vc.VideoCapture(self._videoInput, self)
+		### open cam ###
+		cap = vc.VideoCapture(self._videoInput, self).capture
+		if cap == None:
+			self.log("Can't open camera!")
+			self.active = False
+			return
+		
 		cap.setFPS(self._fps)
-		cap.setSize(self._videoSize)
+		cap.setVideoSize(self._videoSize)
 		cap.setBin(self._bin)
+		cap.setGain(self._gain)
 		
 		
 		### init ###
@@ -249,7 +259,7 @@ class Detector(object):
 
 					contour = contour.h_next()
 					
-				print "proctime: " + str(time.time()-ts)
+				#print "proctime: " + str(time.time()-ts)
 				
 				## write info to frame
 				ms = "%04d" % int( (ts-int(ts)) * 10000 )
@@ -259,61 +269,54 @@ class Detector(object):
 
 				
 				## save / show frame
+				fname = "%s.png" % t
 				if videoGap < self._maxVideoGap:
 					if newVideo:
-						self.log("start capturing video " + t + ".mpg")
-						newVideo = False
-
-						directory = self._videoDir  + str(time.gmtime(ts).tm_year) \
-							+ "/" + str("%02d" % time.gmtime(ts).tm_mon) + "/"
+						self.log("Found motion, start capturing")
+						newVideo = False						
+						directory = os.path.join(self._videoDir,
+											"%d/%02d/%s" % (time.gmtime(ts).tm_year, time.gmtime(ts).tm_mon, t))
 
 						if not self.isWriteable(directory):
 							self._log(directory + "is not writeable!")
 							self._run = False
 							continue
 
-						fileName = directory + str(self._thread) \
-							+ "_" + (t.replace(" ", "_")).replace(":", "-") + ".mpg"
-						
-						color = True
-						if frame.depth == 1:
-							color = False
-						videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('H','F','Y','U'), 25, frameSize, color)
-						
 						for img in historyBuffer.getImages():
-							cv.WriteFrame(videoWriter, img)
+							cv.SaveImage(os.path.join(directory, "%s.png" % img['time']), img['img'])
 
-					cv.WriteFrame(videoWriter, frame)
+					cv.SaveImage(os.path.join(directory, fname), frame)
 				else:
 					if postFrames < self._postFrames and not newVideo:
-						cv.WriteFrame(videoWriter, frame)
+						cv.SaveImage(os.path.join(directory, fname), frame)
 						postFrames += 1
 					elif not newVideo:
-						videoWriter = None
-						self.log("stop capturing video " + t + ".mpg")
+						self.log("Stop capturing")
 						postFrames = 0
 						newVideo = True
 
 
 
 				######## Add Frame to history buffer ########
-				historyBuffer.add(cv.CloneImage( frame ))
+				historyBuffer.add(cv.CloneImage( frame ), t)
 
 
 
 				######## Window ########
 				if self._showWindow:
 					cv.ShowImage("Thread " + str(self._thread), frame)
+					cv.ShowImage("Thread %d avg" % self._thread, runAvgDisplay)
+					cv.ShowImage("Thread %d diff" % self._thread, differenceImg)
 					cv.WaitKey(1)
 				
-				#self.log("Proc: " + str(time.time() - ts))
+				self.log("Proc: " + str(time.time() - ts))
 
 			else:
 				self.log("no more frames (" + str(frameCount) +" frames)")
 				break
 
 		self.log("Close camera")
-		cap.closeCam()
+		cap.close()
 		self.log("end detection thread " + str(self._thread))
 		self.active = False
 
