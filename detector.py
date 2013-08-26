@@ -256,6 +256,7 @@ class Detector(object):
 					if area > self._minRectArea and area < self._maxRectArea and detect:
 						videoGap = 0
 						#print(str(area))
+						self.log("motion detected...")
 						if self._drawRect:
 							self.drawBoundingRect(frame, bounding_rect)
 
@@ -275,7 +276,7 @@ class Detector(object):
 				if videoGap < self._maxVideoGap:
 					if newVideo:
 						self.log("Found motion, start capturing")
-						capbuf = imagestack.Imagestack(self._prevFrames)
+						capbuf = []
 						newVideo = False						
 						directory = os.path.join(self._videoDir,
 											"%d/%02d/%s" % (time.gmtime(ts).tm_year, time.gmtime(ts).tm_mon, t))
@@ -287,14 +288,14 @@ class Detector(object):
 
 						#for img in historyBuffer.getImages():
 						#	cv.SaveImage(os.path.join(directory, "%s.png" % img['time']), img['img'])
-						capbuf.addList(historyBuffer.getImages())
+						capbuf.extend(historyBuffer.getImages())
 
 					#cv.SaveImage(os.path.join(directory, fname), frame)
-					capbuf.add(frame, t)
+					capbuf.append({'img' : frame, 'time' : t})
 				else:
 					if postFrames < self._postFrames and not newVideo:
 						#cv.SaveImage(os.path.join(directory, fname), frame)
-						capbuf.add(frame, t)
+						capbuf.append({'img' : frame, 'time' : t})
 						postFrames += 1
 					elif not newVideo:
 						self.log("Stop capturing")
@@ -373,24 +374,10 @@ class Detector(object):
 		#cv.Rectangle( frame, point1, point2, cv.CV_RGB(120,120,120), 1)
 
 	######### Writes buffer to hdd ##########
-	def saveVideo(self, dir, videoBuffer):
+	def saveVideo(self, directory, videoBuffer):
 		self.log("Write captured images to %s" % dir)
 		
-		for img in videoBuffer.getImages():
-			cv.SaveImage(os.path.join(dir, "%s.png" % img['time']), img['img'])
+		for img in videoBuffer:			
+			cv.SaveImage(os.path.join(directory, "%s.png" % (img['time']) ), img['img'])
 			
-		self.log("Images written to %s" % dir)
-		
-	"""
-	def saveVideo(self, videoBuffer, t, frameSize):
-
-		self.log("write Buffer to disk")
-		fileName = self._videoDir + (t.replace(" ", "_")).replace(":", "-") + ".mpg"
-		videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('P','I','M','1'), 25, frameSize, 1)
-
-		for img in videoBuffer.getImages():
-			cv.WriteFrame(videoWriter, img)
-
-		self.log("Buffer written to disk (" + str(videoBuffer.size()) + " frames)")
-	"""
-
+		self.log("%d Images written to %s" % (len(videoBuffer), dir))

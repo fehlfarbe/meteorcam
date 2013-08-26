@@ -14,8 +14,8 @@ class Imagestack(object):
 			while len(self._images) >= self._max:
 				self._images.pop(0)
 				
-	def addList(self, list):
-		self._images.append(list)
+	def addList(self, lst):
+		self._images.append(lst)
 		
 		if self._max != 0:
 			while len(self._images) >= self._max:

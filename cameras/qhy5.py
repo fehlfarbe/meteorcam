@@ -40,14 +40,17 @@ class qhy5(camera.camera):
         
         ##
         self._firstShot = True
+        self._isCapturing = False
         self._imgBuf = None
         
     def _capture(self):
+        self._isCapturing = True
         ts = time.time()
         buf = self._cap()
         mat = cv.CreateImageHeader( (1280 / self._bin, 1024 / self._bin), cv.IPL_DEPTH_8U, 1)
         cv.SetData(mat, buf, cv.CV_AUTOSTEP)
         self._imgBuf = {'img' : mat, 'time' : ts }
+        self._isCapturing = False
       
     def setBin(self, b):        
         if b in range(0,4):
@@ -86,5 +89,8 @@ class qhy5(camera.camera):
         
     def close(self):
         ### wait if exposure is running
-        time.sleep(self._exp / 1000)
+        while self._isCapturing:
+            print "waiting for camera"
+            time.sleep(0.01)
+            
         self._closecam()
