@@ -131,7 +131,8 @@ class Detector(object):
 
 	######## Log ########
 	def log(self, string):
-		print("[" + str(self._thread) + "] " + str(string))
+		print("[%s] [%d]: %s" % (self._thread, time.time(), str(string)))
+		#print("[" + str(self._thread) + "] " + str(string))
 
 
 	######## stop detection
@@ -168,8 +169,8 @@ class Detector(object):
 		
 		
 		### init ###
-		frame = cap.getFrame()
-
+		frame, ts = cap.getFrame()
+		
 		if not frame:
 			self.log("Error reading first frame")
 			self.active = False
@@ -203,6 +204,7 @@ class Detector(object):
 		differenceImg = cv.CreateImage(frameSize, frame.depth, frame.channels)
 		grayImg = cv.CreateImage(frameSize, cv.IPL_DEPTH_8U, 1)
 		historyBuffer = imagestack.Imagestack(self._prevFrames)
+		capbuf = None
 		videoGap = self._maxVideoGap
 		postFrames = 0
 		frameCount = 1
@@ -216,10 +218,10 @@ class Detector(object):
 
 		### capture loop ###
 		while self._run:
-			ts = time.time()
-			frame = cap.getFrame()
-			#ts = (ts+time.time()) / 2
-
+			frame, ts = cap.getFrame()
+			if ts == None:
+				ts = time.time()
+			
 			videoGap += 1
 
 			if frame:
@@ -273,6 +275,7 @@ class Detector(object):
 				if videoGap < self._maxVideoGap:
 					if newVideo:
 						self.log("Found motion, start capturing")
+						capbuf = imagestack.Imagestack(self._prevFrames)
 						newVideo = False						
 						directory = os.path.join(self._videoDir,
 											"%d/%02d/%s" % (time.gmtime(ts).tm_year, time.gmtime(ts).tm_mon, t))
@@ -282,16 +285,23 @@ class Detector(object):
 							self._run = False
 							continue
 
-						for img in historyBuffer.getImages():
-							cv.SaveImage(os.path.join(directory, "%s.png" % img['time']), img['img'])
+						#for img in historyBuffer.getImages():
+						#	cv.SaveImage(os.path.join(directory, "%s.png" % img['time']), img['img'])
+						capbuf.addList(historyBuffer.getImages())
 
-					cv.SaveImage(os.path.join(directory, fname), frame)
+					#cv.SaveImage(os.path.join(directory, fname), frame)
+					capbuf.add(frame, t)
 				else:
 					if postFrames < self._postFrames and not newVideo:
-						cv.SaveImage(os.path.join(directory, fname), frame)
+						#cv.SaveImage(os.path.join(directory, fname), frame)
+						capbuf.add(frame, t)
 						postFrames += 1
 					elif not newVideo:
 						self.log("Stop capturing")
+						### write images to hdd in new thread ###
+						thread.start_new(self.saveVideo, (directory, capbuf))
+						#self.saveVideo(directory, capbuf)
+						capbuf = None
 						postFrames = 0
 						newVideo = True
 
@@ -363,6 +373,14 @@ class Detector(object):
 		#cv.Rectangle( frame, point1, point2, cv.CV_RGB(120,120,120), 1)
 
 	######### Writes buffer to hdd ##########
+	def saveVideo(self, dir, videoBuffer):
+		self.log("Write captured images to %s" % dir)
+		
+		for img in videoBuffer.getImages():
+			cv.SaveImage(os.path.join(dir, "%s.png" % img['time']), img['img'])
+			
+		self.log("Images written to %s" % dir)
+		
 	"""
 	def saveVideo(self, videoBuffer, t, frameSize):
 

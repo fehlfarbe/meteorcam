@@ -5,6 +5,7 @@ Created on 26.08.2013
 '''
 import camera
 import cv2.cv as cv
+import time
 
 class ocvcam(camera.camera):
     '''
@@ -32,4 +33,4 @@ class ocvcam(camera.camera):
         cv.SetCaptureProperty(self._capture, cv.CV_CAP_PROP_FRAME_HEIGHT, self._videoSize[1])
     
     def getFrame(self):
-        return cv.QueryFrame(self._capture)
+        return cv.QueryFrame(self._capture), time.time()
