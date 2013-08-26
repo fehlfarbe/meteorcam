@@ -4,18 +4,15 @@
 #	motions
 #
 
-import copy
 import sys
 import time
-import colorsys
 import cv2.cv as cv
 import cv2
 import imagestack
 import thread
 import os.path
-import array
-import util
 import ConfigParser
+import videocap as vc
 
 class Detector(object):
 
@@ -50,6 +47,7 @@ class Detector(object):
 		self._videoInput = None
 		self._videoSize = (640, 480)
 		self._fps = 25
+		self._bin = 1
 
 		## thread
 		self._thread = threadnr
@@ -88,7 +86,8 @@ class Detector(object):
 				## video
 				'videoInput' : self._videoInput,
 				'videoSize' : self._videoSize,
-				'fps' : self._fps
+				'fps' : self._fps,
+				'bin' : self._bin
 				}
 		config = ConfigParser.RawConfigParser(defaults)
 		config.read( configfile )
@@ -100,10 +99,8 @@ class Detector(object):
 		self._texttl = config.get('DEFAULT', 'texttl')
 
 		## motion detection
-		self._deNoiseLevel = config.getfloat('DEFAULT', 'deNoiseLevel')
-		df = config.get('DEFAULT', 'darkframe')
-		if df != None:
-			self._darkframe = cv.LoadImage(df)
+		self._deNoiseLevel = config.getint('DEFAULT', 'deNoiseLevel')
+		self._darkframe = config.get('DEFAULT', 'darkframe')
 		self._mask = config.get('DEFAULT', 'mask')
 		self._avgLevel = config.getfloat('DEFAULT', 'avgLevel')
 		self._prevFrames = config.getfloat('DEFAULT', 'prevFrames')
@@ -125,6 +122,7 @@ class Detector(object):
 		self._videoInput = config.get('DEFAULT', 'videoInput')
 		self._videoSize = config.get('DEFAULT', 'videoSize')
 		self._fps = config.getfloat('DEFAULT', 'fps')
+		self._bin = config.getint('DEFAULT', 'bin')
 
 		self.log("config loaded")
 
@@ -153,76 +151,91 @@ class Detector(object):
 	def detect(self):	
 
 		self.log("Start detection thread")
-		try:
-			capture = cv.CaptureFromCAM(int(self._videoInput))
-			cv.SetCaptureProperty(capture, cv.CV_CAP_PROP_FRAME_WIDTH, self._videoSize[0])
-			cv.SetCaptureProperty(capture, cv.CV_CAP_PROP_FRAME_HEIGHT, self._videoSize[1])
-			cv.SetCaptureProperty(capture, cv.CV_CAP_PROP_FPS, self._fps)
-			self.log("Capture from cam")		
-		except:
-			capture = cv.CaptureFromFile(self._videoInput)
-			self.log("Capture from file " + self._videoInput)
+		cap = vc.VideoCapture(self._videoInput, self)
+		cap.setFPS(self._fps)
+		cap.setSize(self._videoSize)
+		cap.setBin(self._bin)
 		
-		runAvg = None
-		runAvgDisplay = None
-		differenceImg = None
+		
+		### init ###
+		frame = cap.getFrame()
+
+		if not frame:
+			self.log("Error reading first frame")
+			self.active = False
+			return
+		frameSize = cv.GetSize(frame)
+		
+		darkframe = None
+		if self._darkframe:
+			try:
+				darkframe = cv.LoadImage(self._darkframe)
+				if frameSize != cv.GetSize(darkframe):
+					darkframe = None
+					self.log("Darkframe has wrong size")
+			except:
+				self.log("Darkframe not found")
+				
+		mask = None
+		'''
+		if self._mask:
+			try:
+				tmp = cv.LoadImage(self._mask)
+				mask = cv.CreateImage( frameSize, cv.IPL_DEPTH_8U, 1)
+				cv.CvtColor( tmp, mask, cv.CV_RGB2GRAY )
+				if frameSize != cv.GetSize(mask):
+					raise Exception();
+			except:
+				self.log("Mask not found or wrong size")
+		'''
+		runAvg = cv.CreateImage( frameSize, cv.IPL_DEPTH_32F, frame.channels)
+		runAvgDisplay = cv.CreateImage(frameSize, frame.depth, frame.channels)
+		differenceImg = cv.CreateImage(frameSize, frame.depth, frame.channels)
+		grayImg = cv.CreateImage(frameSize, cv.IPL_DEPTH_8U, 1)
 		historyBuffer = imagestack.Imagestack(self._prevFrames)
 		videoGap = self._maxVideoGap
 		postFrames = 0
-		frameCount = float(0)
+		frameCount = 1
 		detect = False
 		newVideo = True
-
-		### capture loop ###
-
+		
 		### testwindow
 		if self._showWindow:
 			self.log("Show window")
 			cv.NamedWindow("Thread " + str(self._thread), 1)
 
+		### capture loop ###
 		while self._run:
 			ts = time.time()
-			frame = cv.QueryFrame(capture)
-			print "Cap: " + str(time.time() - ts)
+			frame = cap.getFrame()
 			ts = (ts+time.time()) / 2
 
 			videoGap += 1
 
 			if frame:
-
-				frameSize = cv.GetSize(frame)
-
 				frameCount += 1
 
-				if 1/frameCount < self._avgLevel and not detect:
-					#self.log("frames: " + str(1/frameCount))
+				if 1/float(frameCount) < self._avgLevel and not detect:
 					self.log("start detection")
 					detect = True
 				
-		
-				if self._darkframe:
-					if frameSize == cv.GetSize(self._darkframe):
-						cv.Sub( frame, self._darkframe, frame )
-
-				## detect motion
-				if not runAvg:
-					runAvg = cv.CreateImage( frameSize, cv.IPL_DEPTH_32F, 3 )
-				if not runAvgDisplay:
-					runAvgDisplay = cv.CloneImage( frame )
-				if not differenceImg:
-					differenceImg = cv.CloneImage( frame )
+				### substract darkframe
+				if darkframe:
+					cv.Sub( frame, darkframe, frame )
 	
 				if self._deNoiseLevel > 0:
 					cv.Smooth( frame, frame, cv.CV_MEDIAN, self._deNoiseLevel)
-				cv.RunningAvg( frame, runAvg, self._avgLevel, self._mask )
+				cv.RunningAvg( frame, runAvg, self._avgLevel, mask )
 				cv.ConvertScale( runAvg, runAvgDisplay, 1.0, 0.0 )
 				cv.AbsDiff( frame, runAvgDisplay, differenceImg )
-
-				grayImg = cv.CreateImage((differenceImg.width,differenceImg.height),differenceImg.depth,1)
-				cv.CvtColor( differenceImg, grayImg, cv.CV_RGB2GRAY )
+				
+				if differenceImg.depth == grayImg.depth:
+					grayImg = differenceImg
+				else:
+					cv.CvtColor( differenceImg, grayImg, cv.CV_RGB2GRAY )
 				cv.Threshold( grayImg, grayImg, self._detectThresh, 255, cv.CV_THRESH_BINARY )
 				contour = cv.FindContours( grayImg, cv.CreateMemStorage(0), cv.CV_RETR_EXTERNAL, cv.CV_CHAIN_APPROX_SIMPLE)	
-
+				
 
 				## draw bounding rect
 				while contour:
@@ -235,15 +248,16 @@ class Detector(object):
 							self.drawBoundingRect(frame, bounding_rect)
 
 					contour = contour.h_next()
-
-
+					
+				print "proctime: " + str(time.time()-ts)
+				
 				## write info to frame
 				ms = "%04d" % int( (ts-int(ts)) * 10000 )
 				t = time.strftime("%Y-%m-%d %H:%M:%S." + ms + " UTC", time.gmtime(ts))
 				cv.PutText(frame, t, (5, frameSize[1] - 5), self._font, self._fontcolor)
 				cv.PutText(frame, self._texttl, (5, 15), self._font, self._fontcolor)
 
-
+				
 				## save / show frame
 				if videoGap < self._maxVideoGap:
 					if newVideo:
@@ -260,8 +274,11 @@ class Detector(object):
 
 						fileName = directory + str(self._thread) \
 							+ "_" + (t.replace(" ", "_")).replace(":", "-") + ".mpg"
-
-						videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('P','I','M','1'), 25, frameSize, 1)
+						
+						color = True
+						if frame.depth == 1:
+							color = False
+						videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('P','I','M','1'), 25, frameSize, color)
 						
 						for img in historyBuffer.getImages():
 							cv.WriteFrame(videoWriter, img)
@@ -289,12 +306,14 @@ class Detector(object):
 					cv.ShowImage("Thread " + str(self._thread), frame)
 					cv.WaitKey(40)
 				
-				print "Proc: " + str(time.time() - ts)
+				#self.log("Proc: " + str(time.time() - ts))
 
 			else:
 				self.log("no more frames (" + str(frameCount) +" frames)")
 				break
 
+		self.log("Close camera")
+		cap.closeCam()
 		self.log("end detection thread " + str(self._thread))
 		self.active = False
 
@@ -319,7 +338,7 @@ class Detector(object):
 	def drawBoundingRect(self, frame, bounding_rect):
 
 		l = 10
-		c = cv.CV_RGB(120,120,120)
+		c = cv.CV_RGB(200,120,120)
 		point1 = ( bounding_rect[0] - self._bRectOffset, bounding_rect[1] - self._bRectOffset )
 		point2 = ( bounding_rect[0] - self._bRectOffset, bounding_rect[1] + bounding_rect[3] + self._bRectOffset )
 		point3 = ( bounding_rect[0] + bounding_rect[2] + self._bRectOffset, bounding_rect[1] - self._bRectOffset )
