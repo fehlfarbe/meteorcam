@@ -208,7 +208,7 @@ class Detector(object):
 		while self._run:
 			ts = time.time()
 			frame = cap.getFrame()
-			ts = (ts+time.time()) / 2
+			#ts = (ts+time.time()) / 2
 
 			videoGap += 1
 
@@ -278,7 +278,7 @@ class Detector(object):
 						color = True
 						if frame.depth == 1:
 							color = False
-						videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('P','I','M','1'), 25, frameSize, color)
+						videoWriter = cv.CreateVideoWriter(fileName, cv.CV_FOURCC('H','F','Y','U'), 25, frameSize, color)
 						
 						for img in historyBuffer.getImages():
 							cv.WriteFrame(videoWriter, img)
@@ -304,7 +304,7 @@ class Detector(object):
 				######## Window ########
 				if self._showWindow:
 					cv.ShowImage("Thread " + str(self._thread), frame)
-					cv.WaitKey(40)
+					cv.WaitKey(1)
 				
 				#self.log("Proc: " + str(time.time() - ts))
 
