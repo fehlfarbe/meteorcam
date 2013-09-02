@@ -199,10 +199,11 @@ class Detector(object):
 			except:
 				self.log("Mask not found or wrong size")
 		'''
-		runAvg = cv.CreateImage( frameSize, cv.IPL_DEPTH_32F, frame.channels)
-		runAvgDisplay = cv.CreateImage(frameSize, frame.depth, frame.channels)
-		differenceImg = cv.CreateImage(frameSize, frame.depth, frame.channels)
-		grayImg = cv.CreateImage(frameSize, cv.IPL_DEPTH_8U, 1)
+		small, smallSize = self.workingThumb(frame, frameSize)
+		runAvg = cv.CreateImage( smallSize, cv.IPL_DEPTH_32F, small.channels)
+		runAvgDisplay = cv.CreateImage(smallSize, small.depth, small.channels)
+		differenceImg = cv.CreateImage(smallSize, small.depth, small.channels)
+		grayImg = cv.CreateImage(smallSize, cv.IPL_DEPTH_8U, 1)
 		historyBuffer = imagestack.Imagestack(self._prevFrames)
 		capbuf = None
 		videoGap = self._maxVideoGap
@@ -221,10 +222,13 @@ class Detector(object):
 			frame, ts = cap.getFrame()
 			if ts == None:
 				ts = time.time()
+				
+			### create small image for detection
+			small, smallSize = self.workingThumb(frame, frameSize)
 			
 			videoGap += 1
 
-			if frame:
+			if small:
 				frameCount += 1
 
 				if 1/float(frameCount) < self._avgLevel and not detect:
@@ -236,10 +240,10 @@ class Detector(object):
 					cv.Sub( frame, darkframe, frame )
 	
 				if self._deNoiseLevel > 0:
-					cv.Smooth( frame, frame, cv.CV_MEDIAN, self._deNoiseLevel)
-				cv.RunningAvg( frame, runAvg, self._avgLevel, mask )
+					cv.Smooth( small, small, cv.CV_MEDIAN, self._deNoiseLevel)
+				cv.RunningAvg( small, runAvg, self._avgLevel, mask )
 				cv.ConvertScale( runAvg, runAvgDisplay, 1.0, 0.0 )
-				cv.AbsDiff( frame, runAvgDisplay, differenceImg )
+				cv.AbsDiff( small, runAvgDisplay, differenceImg )
 				
 				if differenceImg.depth == grayImg.depth:
 					grayImg = differenceImg
@@ -258,21 +262,17 @@ class Detector(object):
 						#print(str(area))
 						self.log("motion detected...")
 						if self._drawRect:
-							self.drawBoundingRect(frame, bounding_rect)
+							self.drawBoundingRect(frame, bounding_rect, smallSize = smallSize)
 
 					contour = contour.h_next()
-					
-				#print "proctime: " + str(time.time()-ts)
-				
-				## write info to frame
+		
+				## add text notations
 				ms = "%04d" % int( (ts-int(ts)) * 10000 )
 				t = time.strftime("%Y-%m-%d %H:%M:%S." + ms + " UTC", time.gmtime(ts))
-				cv.PutText(frame, t, (5, frameSize[1] - 5), self._font, self._fontcolor)
-				cv.PutText(frame, self._texttl, (5, 15), self._font, self._fontcolor)
+				frame = self.addText(frame, self._texttl, t)
 
 				
 				## save / show frame
-				fname = "%s.png" % t
 				if videoGap < self._maxVideoGap:
 					if newVideo:
 						self.log("Found motion, start capturing")
@@ -286,22 +286,17 @@ class Detector(object):
 							self._run = False
 							continue
 
-						#for img in historyBuffer.getImages():
-						#	cv.SaveImage(os.path.join(directory, "%s.png" % img['time']), img['img'])
 						capbuf.extend(historyBuffer.getImages())
 
-					#cv.SaveImage(os.path.join(directory, fname), frame)
 					capbuf.append({'img' : frame, 'time' : t})
 				else:
 					if postFrames < self._postFrames and not newVideo:
-						#cv.SaveImage(os.path.join(directory, fname), frame)
 						capbuf.append({'img' : frame, 'time' : t})
 						postFrames += 1
 					elif not newVideo:
 						self.log("Stop capturing")
 						### write images to hdd in new thread ###
 						thread.start_new(self.saveVideo, (directory, capbuf))
-						#self.saveVideo(directory, capbuf)
 						capbuf = None
 						postFrames = 0
 						newVideo = True
@@ -349,8 +344,17 @@ class Detector(object):
 
 
 	######### draw bounding rect ##########	
-	def drawBoundingRect(self, frame, bounding_rect):
-
+	def drawBoundingRect(self, frame, b_rect, smallSize = None):
+		
+		bounding_rect = [0,0,0,0]
+		if smallSize != None:
+			size = cv.GetSize(frame)
+			scale = size[0] / float(smallSize[0])
+			bounding_rect[0] = int(b_rect[0] * scale)
+			bounding_rect[1] = int(b_rect[1] * scale)
+			bounding_rect[2] = int(b_rect[2] * scale)
+			bounding_rect[3] = int(b_rect[3] * scale)
+		
 		l = 10
 		c = cv.CV_RGB(200,120,120)
 		point1 = ( bounding_rect[0] - self._bRectOffset, bounding_rect[1] - self._bRectOffset )
@@ -373,6 +377,37 @@ class Detector(object):
 		#cv.DrawContours(frame, contour, cv.CV_RGB(255,0,0), cv.CV_RGB(0,255,0), 0, 1, 0, (0,0) )
 		#cv.Rectangle( frame, point1, point2, cv.CV_RGB(120,120,120), 1)
 
+	######### Add text notations to frame ##########
+	def addText(self, frame, textTop, textBottom):
+		s = cv.GetSize(frame)
+		offset = 8
+		
+		## add space for text notations
+		textSize = cv.GetTextSize(textTop, self._font)
+		textframe = cv.CreateImage( (s[0], s[1] + 4*textSize[1] + 2*offset), frame.depth, frame.channels)
+		cv.Set(textframe, 0)
+		cv.SetImageROI(textframe, (0, 2*textSize[1] + offset, s[0], s[1]))
+		cv.Copy(frame, textframe)
+		cv.ResetImageROI(textframe)
+				
+		## write text
+		cv.PutText(textframe, textTop, (5, 2*textSize[1] + offset/2), self._font, self._fontcolor)
+		cv.PutText(textframe, textBottom, (5, int(s[1] + 4*textSize[1] + 1.5 * offset)), self._font, self._fontcolor)
+		
+		return textframe
+
+	######### creates resized image for detection ##########		
+	def workingThumb(self, frame, frameSize):
+		if frameSize[0] <= 640 and frameSize[1] <= 480:
+			small = cv.CloneImage(frame)
+		else:
+			small = cv.CreateImage( ( 640, int((640/float(frameSize[0])) * frameSize[1]) ), frame.depth, frame.channels)
+			smallSize = cv.GetSize(small)
+			cv.Resize(frame, small)
+			
+			
+		return small, smallSize
+
 	######### Writes buffer to hdd ##########
 	def saveVideo(self, directory, videoBuffer):
 		self.log("Write captured images to %s" % dir)
@@ -380,4 +415,4 @@ class Detector(object):
 		for img in videoBuffer:			
 			cv.SaveImage(os.path.join(directory, "%s.png" % (img['time']) ), img['img'])
 			
-		self.log("%d Images written to %s" % (len(videoBuffer), dir))
+		self.log("%d Images written to %s" % (len(videoBuffer), directory))
