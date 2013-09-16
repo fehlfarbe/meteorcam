@@ -13,6 +13,7 @@ import thread
 import os.path
 import ConfigParser
 import videocap as vc
+import httpserver
 
 class Detector(object):
 
@@ -49,6 +50,11 @@ class Detector(object):
 		self._fps = 25
 		self._bin = 1
 		self._gain = 10
+		
+		## server
+		self._runServer = False
+		self._serverPort = 8000
+		self._server = None
 
 		## thread
 		self._thread = threadnr
@@ -84,6 +90,9 @@ class Detector(object):
 				'videoDir' : str(self._videoDir),				
 				## xxxxx
 				'showWindow' : str(self._showWindow),
+				## server
+				'runServer' : str(self._runServer),
+				'serverPort' : self._serverPort,
 				## video
 				'videoInput' : self._videoInput,
 				'videoSize' : self._videoSize,
@@ -119,6 +128,10 @@ class Detector(object):
 
 		## xxxxx
 		self._showWindow = config.getboolean('DEFAULT', 'showWindow')
+		
+		## server
+		self._runServer = config.getboolean('DEFAULT', 'runServer')
+		self._serverPort = config.getint('DEFAULT', 'serverPort')
 
 		## video
 		self._videoInput = config.get('DEFAULT', 'videoInput')
@@ -216,6 +229,11 @@ class Detector(object):
 		if self._showWindow:
 			self.log("Show window")
 			cv.NamedWindow("Thread " + str(self._thread), 1)
+			
+		### server
+		if self._runServer:
+			self.log("Start Server on port %d" % self._serverPort)
+			self._server = httpserver.httpserver(self._serverPort)
 
 		### capture loop ###
 		while self._run:
@@ -302,10 +320,8 @@ class Detector(object):
 						newVideo = True
 
 
-
 				######## Add Frame to history buffer ########
 				historyBuffer.add(cv.CloneImage( frame ), t)
-
 
 
 				######## Window ########
@@ -315,6 +331,10 @@ class Detector(object):
 					cv.ShowImage("Thread %d diff" % self._thread, differenceImg)
 					cv.WaitKey(1)
 				
+				######## Update Server ########
+				if self._server:
+					self._server.updateImage(cv.CloneImage( frame ))
+				
 				self.log("Proc: " + str(time.time() - ts))
 
 			else:
@@ -323,6 +343,11 @@ class Detector(object):
 
 		self.log("Close camera")
 		cap.close()
+		
+		if self._server:
+			self.log("Close server")
+			self._server.shutdown()
+		
 		self.log("end detection thread " + str(self._thread))
 		self.active = False
 
