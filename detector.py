@@ -53,7 +53,7 @@ class Detector(object):
 		
 		## server
 		self._runServer = False
-		self._serverPort = 8000
+		self._serverPort = 8080
 		self._server = None
 
 		## thread
